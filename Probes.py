@@ -4,6 +4,7 @@
 # Import python stdlib
 
 # Import third party modules
+from probes import get_server
 
 # Import Arista modules
 import Cell
@@ -13,6 +14,16 @@ import ConfigMount
 import HostnameCli
 
 from CliModel import Model
+
+probesConfig = None
+# probesServer = None
+
+PROBES_DEFAULTS = {
+    'source': 'lo0',
+    'count': 1,
+    'interval': 1,
+    'type': 'icmp'
+}
 
 tokenShowProbes = CliParser.KeywordRule( 'probes',
     helpdesc='Arista Probes' )
@@ -25,12 +36,11 @@ tokenShowProbesResults = CliParser.KeywordRule(
     'results',
     helpdesc='Results of Arista probes' )
 
-
 ### Operational commands
 
 class GetProbesConfig( Model ):
     def render( self ):
-        print 'Will display probes config.'
+        print(probesConfig)
 
 class GetProbesResults( Model ):
     def render( self ):
@@ -136,49 +146,79 @@ intervalNumberRule = CliParser.RangeRule( 1, 86400,
 
 def doDisableProbes( mode ):
     print('Will disable probes config')
+    probesConfig = {}
 
 
 def doDeleteProbeName( mode, probeName, options=None ):
     print 'Will delete probe {}'.format(probeName)
+    if probeName in probesConfig.keys():
+        probesConfig.pop(probeName)
 
 
-def doDelteProbeTestConfig( mode, probeName, testName, options=None ):
+def doDeleteProbeTestConfig( mode, probeName, testName, options=None ):
     print 'Will delete {0}, under probe {1} with options {2}'.format(
         testName,
         probeName,
         str(options)
     )
 
-def doConfigProbeTest( mode, probeName, testName, options=None ):
+    if probeName in probesConfig.keys():
+        if testName in probesConfig[probeName].keys():
+            if not options:
+                probesConfig[probeName].pop(testName)
+            else:
+                opts_dict = dict(options)
+                opts_dict.pop('target', None)  # cant remove the target
+                for opt in opts_dict.keys():
+                    probesConfig[probeName][testName][opt] = PROBES_DEFAULTS[opt]
+
+    print(probesConfig)
+
+def doConfigProbeTest( mode, probeName, testName, ipAddrOrHostname, options=None ):
     print 'Will configure test {0}, under probe {1} with options {2}'.format(
         testName,
         probeName,
         str(options)
     )
 
+    if probeName not in probesConfig.keys():
+        probesConfig[probeName] = {}
+    if testName not in probesConfig[probeName].keys():
+        probesConfig[probeName][testName] = PROBES_DEFAULTS.copy()
+
+    probesConfig[probeName][testName]['target'] = ipAddrOrHostname
+
+    opts_dict = dict(options)
+    for opt, val in opts_dict.iteritems():
+        probesConfig[probeName][testName][opt] = val
+
+    print(probesConfig)
+
+# remove the whole config of the probes
 BasicCli.GlobalConfigMode.addCommand(
    ( BasicCli.noOrDefault, tokenConfigProbes, doDisableProbes ) )
 
+# remove the config of a specific probe
 BasicCli.GlobalConfigMode.addCommand(
    ( BasicCli.noOrDefault, tokenConfigProbes, tokenProbeNameKnob, tokenProbeName,
      doDeleteProbeName ) )
 
+# remove config of a specific test - either details and use defaults, either whole test
 BasicCli.GlobalConfigMode.addCommand(
-   ( [BasicCli.noOrDefault, tokenConfigProbes, tokenProbeNameKnob, tokenProbeName, tokenTestKnob, tokenTestName,
+   ( BasicCli.noOrDefault, tokenConfigProbes, tokenProbeNameKnob, tokenProbeName, tokenTestKnob, tokenTestName,
      CliParser.SetRule(
-         ( '>>source', tokenTestSource, tokenSourceIpAddrOrHostname ),
-         ( '>>target', tokenTarget, tokenTargetIpAddrOrHostname ),
-         ( '>>count', tokenCount, countNumberRule ),
-         ( '>>interval', tokenInterval, intervalNumberRule ),
-         ( '>>type', tokenType, monthRule ),
+         ( '>>source', tokenTestSource ),
+         ( '>>count', tokenCount ),
+         ( '>>interval', tokenInterval ),
+         ( '>>type', tokenType ),
          name='options' ),
-     doDelteProbeTestConfig ) )
+     doDeleteProbeTestConfig ) )
 
+# configure one more test under a specific probe name
 BasicCli.GlobalConfigMode.addCommand(
-   ( tokenConfigProbes, tokenProbeNameKnob, tokenProbeName, tokenTestKnob, tokenTestName,
+   ( tokenConfigProbes, tokenProbeNameKnob, tokenProbeName, tokenTestKnob, tokenTestName, tokenTarget, tokenTargetIpAddrOrHostname,
      CliParser.SetRule(
          ( '>>source', tokenTestSource, tokenSourceIpAddrOrHostname ),
-         ( '>>target', tokenTarget, tokenTargetIpAddrOrHostname ),
          ( '>>count', tokenCount, countNumberRule ),
          ( '>>interval', tokenInterval, intervalNumberRule ),
          ( '>>type', tokenType, monthRule ),
@@ -187,7 +227,11 @@ BasicCli.GlobalConfigMode.addCommand(
 
 # Plugin definition
 def Plugin( entityManager ):
-    pass
-   # global probesConfig
-   # probesConfig = ConfigMount.mount(
-   #    entityManager, "probes/config", "Probes::Config", "w" )
+    global probesConfig
+    global probesServer
+
+    # probesServer = get_server()
+    # probesConfig = probesServer.get_config()
+    probesConfig = {}
+    # probesConfig = ConfigMount.mount(
+    #     entityManager, "probes/config", "Probes::Config", "w" )
